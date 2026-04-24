@@ -119,16 +119,14 @@ Read the first 20 lines of the existing `PROJECT_INDEX.md` to extract the stored
 
 For each file to index:
 1. **Check the no-read list first** (images, fonts, media, archives, binaries, >1 MB blobs). If matched, skip reading entirely — derive the description from filename + extension only. Do NOT use Read, cat, or any content-loading tool on these files.
-2. **Huge text files (>5000 lines)** — do NOT full-read. Extract only:
-   - The top-of-file docstring / leading comment block
-   - Public signatures: function/class/interface/type declarations, top-level exports, route registrations
+2. **Large text files (>2000 lines)** — do NOT full-read. Signatures-first:
+   - `grep -nE '^(export |def |class |function |interface |type |const [A-Z]|pub |async fn |fn )' <file> | head -100`
+   - `head -50 <file>` for the leading doc comment
    - Skip bodies, loops, inline logic
-   Tools: `grep -nE '^(export |def |class |function |interface |type |const [A-Z]|pub )' <file> | head -100` plus `head -50 <file>` for the leading doc comment. One focused Read over the first ~100 lines is usually enough if the file is well-structured.
-3. **Medium files (2000–5000 lines)** — read first 50 + last 50 lines only.
-4. Otherwise, read the file (cap at ~300 lines — enough for imports, main exports, top-level comments).
-5. Write a one-line description focused on what the file **does**, not its type.
+3. Otherwise, read the file (cap at ~300 lines — enough for imports, main exports, top-level comments).
+4. Write a one-line description focused on what the file **does**, not its type.
 
-**Reading more when needed**: the caps above (300 lines / 50+50 lines / signatures-only) are the DEFAULT budget to keep indexing fast. If after the initial read you still can't write a confident, specific one-liner — e.g. the top of the file is pure imports/boilerplate and the real purpose lives further down — do a targeted second read (jump to a specific offset, grep for a symbol you spotted, or expand the line cap). Prefer surgical follow-up reads over re-reading the whole file.
+**Reading more when needed**: the caps above (300 lines / signatures-only) are the DEFAULT budget to keep indexing fast. If after the initial read you still can't write a confident, specific one-liner — e.g. the top of the file is pure imports/boilerplate and the real purpose lives further down — do a targeted second read (jump to a specific offset, grep for a symbol you spotted, or expand the line cap). Prefer surgical follow-up reads over re-reading the whole file.
 
 Description rules:
 - One sentence, ≤120 characters
@@ -139,7 +137,13 @@ Description rules:
 - For docs: first paragraph summary
 - Skip trivial files (`.gitignore`, `.env.example`) with a short neutral line
 
-**Parallelize** file reads when possible — for large projects use concurrent reads via subagents or Promise.all patterns. Batch in groups of ~20 to avoid context bloat.
+**Parallelize aggressively — this is MANDATORY, not optional:**
+
+- **≤50 files** — batch reads in groups of 20 via a single message with 20 parallel Read tool calls. Never read files one at a time in sequence.
+- **>50 files** — dispatch subagents (Explore type). Split the file list into chunks of ~30 files per subagent. Each subagent returns `{path: description}` pairs. Merge results in the main thread.
+  - Prompt template for each subagent: "Read each of these N files and return a one-line description for each (format: `path: description`). Rules: ≤120 chars, present tense, name the primary export/purpose. For large files (>2000 lines), grep signatures and the leading comment instead of full read. Files: [list]."
+  - Run subagents in parallel via a single message with multiple Agent tool calls.
+- Reading files one-by-one on a repo of 100+ files is a bug. Always batch.
 
 ### Step 4: Build the tree
 
@@ -248,6 +252,7 @@ The script itself handles debouncing (60s) + skip-if-missing + single-flight loc
 
 - **Opening images/binaries to describe them** — never Read `.png`, `.woff2`, `.pdf`, etc. Describe from filename only. Reading images burns huge time/tokens for zero signal.
 - **Writing index to `.claude/PROJECT_INDEX.md`** — belongs at repo root so all agents see it.
+- **Reading files sequentially** — kills indexing speed. Always batch in parallel (20 Reads per message) or dispatch subagents for >50 files.
 - **Describing files as nouns ("A helper file")** — state what it DOES.
 - **Skipping `.gitignore`** — don't index `node_modules`. Always start from `git ls-files` inside a repo.
 - **Creating context files for unused tools** — only touch `.cursor/`, `.gemini/`, etc. if the directory already exists.
@@ -260,8 +265,7 @@ The script itself handles debouncing (60s) + skip-if-missing + single-flight loc
 
 - **Monorepos** — index the root; don't recurse into nested `.git` dirs.
 - **Submodules** — list the submodule path as a single entry with its remote URL as the description, don't descend.
-- **Large text files (2000–5000 lines)** — read only first + last 50 lines.
-- **Huge text files (>5000 lines)** — grep for signatures (functions, classes, exports) + read leading doc comment. Never full-read.
+- **Large text files (>2000 lines)** — grep for signatures (functions, classes, exports) + read leading doc comment. Never full-read.
 - **Generated files checked in** (e.g., `.gen.ts`, `pnpm-lock.yaml` — usually gitignored but some projects commit them): description = "Generated — do not edit".
 - **Symlinks** — follow once, describe target; note `(symlink → target)` in the description.
 - **Multiple agent files coexisting** (`CLAUDE.md` AND `AGENTS.md` both present) — wire the block into both; they serve different agents.
