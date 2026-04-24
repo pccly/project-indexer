@@ -7,8 +7,8 @@ set -u
 PROJECT_ROOT="${1:-}"
 if [ -z "$PROJECT_ROOT" ] || [ ! -d "$PROJECT_ROOT" ]; then exit 0; fi
 
-INDEX="$PROJECT_ROOT/.claude/PROJECT_INDEX.md"
-LOCK="$PROJECT_ROOT/.claude/.project-index.lock"
+INDEX="$PROJECT_ROOT/PROJECT_INDEX.md"
+LOCK="$PROJECT_ROOT/.project-index.lock"
 
 # Only refresh if the index already exists. Auto mode never creates.
 [ -f "$INDEX" ] || exit 0
