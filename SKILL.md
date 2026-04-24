@@ -81,13 +81,26 @@ See "Enable auto mode" below for setup.
 
 ### Step 1: Determine scope
 
-Ignore patterns (union):
+Ignore patterns (union) — files EXCLUDED from the index entirely:
 - Everything in `.gitignore` at project root
 - Everything in `.claudeignore` and/or `.aiignore` at project root (if exists)
 - Always ignore: `.git/`, `.DS_Store`, `*.lock`, `*.log`, `__pycache__/`, `.pytest_cache/`, `.next/`, `.turbo/`, `.cache/`, `*.min.js`, `*.min.css`
-- Binary files (detect via extension): `.png .jpg .jpeg .gif .ico .webp .pdf .woff .woff2 .ttf .otf .eot .mp4 .mp3 .wav .zip .tar .gz .bz2 .7z .dmg .exe .bin .so .dylib .dll .ipa .apk`
 
-Use `git ls-files --cached --others --exclude-standard` as the source of truth when inside a git repo — it already honors `.gitignore`. Then subtract `.claudeignore` / `.aiignore` matches and binary extensions.
+**No-read** files — INCLUDED in the index but NEVER opened (description derived from filename/extension only, never from contents). This avoids burning tokens and latency on images and other binary/heavy assets:
+- Images: `.png .jpg .jpeg .gif .ico .webp .svg .avif .bmp .tiff`
+- Fonts: `.woff .woff2 .ttf .otf .eot`
+- Media: `.mp4 .mp3 .wav .mov .webm .ogg .flac`
+- Archives: `.zip .tar .gz .bz2 .7z .rar`
+- Binaries / compiled: `.pdf .exe .bin .so .dylib .dll .dmg .ipa .apk .wasm .class .o .a`
+- Data blobs > 1 MB regardless of extension (`.json`, `.csv`, `.parquet`, `.sqlite`, etc.)
+- Any text file > 2000 lines — read only first 50 + last 50 lines (already covered in Edge cases)
+
+For no-read files, write a generic one-liner from the filename + parent dir, e.g.:
+- `assets/logo.png` → "PNG image asset."
+- `fonts/Inter-Regular.woff2` → "WOFF2 font file."
+- `data/users.sqlite` → "SQLite database blob."
+
+Use `git ls-files --cached --others --exclude-standard` as the source of truth when inside a git repo — it already honors `.gitignore`. Then subtract `.claudeignore` / `.aiignore` matches. Do NOT subtract no-read extensions — they still appear in the tree.
 
 When not in a git repo, walk the filesystem manually respecting the ignore rules above.
 
@@ -105,8 +118,17 @@ Read the first 20 lines of the existing `PROJECT_INDEX.md` to extract the stored
 ### Step 3: Describe each file
 
 For each file to index:
-1. Read the file (cap at ~300 lines — enough for imports, main exports, top-level comments)
-2. Write a one-line description focused on what the file **does**, not its type
+1. **Check the no-read list first** (images, fonts, media, archives, binaries, >1 MB blobs). If matched, skip reading entirely — derive the description from filename + extension only. Do NOT use Read, cat, or any content-loading tool on these files.
+2. **Huge text files (>5000 lines)** — do NOT full-read. Extract only:
+   - The top-of-file docstring / leading comment block
+   - Public signatures: function/class/interface/type declarations, top-level exports, route registrations
+   - Skip bodies, loops, inline logic
+   Tools: `grep -nE '^(export |def |class |function |interface |type |const [A-Z]|pub )' <file> | head -100` plus `head -50 <file>` for the leading doc comment. One focused Read over the first ~100 lines is usually enough if the file is well-structured.
+3. **Medium files (2000–5000 lines)** — read first 50 + last 50 lines only.
+4. Otherwise, read the file (cap at ~300 lines — enough for imports, main exports, top-level comments).
+5. Write a one-line description focused on what the file **does**, not its type.
+
+**Reading more when needed**: the caps above (300 lines / 50+50 lines / signatures-only) are the DEFAULT budget to keep indexing fast. If after the initial read you still can't write a confident, specific one-liner — e.g. the top of the file is pure imports/boilerplate and the real purpose lives further down — do a targeted second read (jump to a specific offset, grep for a symbol you spotted, or expand the line cap). Prefer surgical follow-up reads over re-reading the whole file.
 
 Description rules:
 - One sentence, ≤120 characters
@@ -224,6 +246,7 @@ The script itself handles debouncing (60s) + skip-if-missing + single-flight loc
 
 ## Common mistakes
 
+- **Opening images/binaries to describe them** — never Read `.png`, `.woff2`, `.pdf`, etc. Describe from filename only. Reading images burns huge time/tokens for zero signal.
 - **Writing index to `.claude/PROJECT_INDEX.md`** — belongs at repo root so all agents see it.
 - **Describing files as nouns ("A helper file")** — state what it DOES.
 - **Skipping `.gitignore`** — don't index `node_modules`. Always start from `git ls-files` inside a repo.
@@ -237,7 +260,8 @@ The script itself handles debouncing (60s) + skip-if-missing + single-flight loc
 
 - **Monorepos** — index the root; don't recurse into nested `.git` dirs.
 - **Submodules** — list the submodule path as a single entry with its remote URL as the description, don't descend.
-- **Very large files (>2000 lines)** — read only first + last 50 lines for description.
+- **Large text files (2000–5000 lines)** — read only first + last 50 lines.
+- **Huge text files (>5000 lines)** — grep for signatures (functions, classes, exports) + read leading doc comment. Never full-read.
 - **Generated files checked in** (e.g., `.gen.ts`, `pnpm-lock.yaml` — usually gitignored but some projects commit them): description = "Generated — do not edit".
 - **Symlinks** — follow once, describe target; note `(symlink → target)` in the description.
 - **Multiple agent files coexisting** (`CLAUDE.md` AND `AGENTS.md` both present) — wire the block into both; they serve different agents.
