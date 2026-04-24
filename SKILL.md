@@ -164,9 +164,45 @@ Write `PROJECT_INDEX.md` at the repo root with:
 
 ### Step 6: Wire into agent context files
 
-Detect which agent context files exist at the repo root (and tool-specific subdirs). For EACH detected file, manage a marked block so re-runs are idempotent.
+**Detect harnesses FIRST, then write only matching files. Never create duplicates.**
 
-**Block content** (same text in every file):
+#### 6a. Detect which harnesses are in use
+
+Build the detection set by scanning for these signals in the repo root (in this order):
+
+| Harness | Detection signal (any one triggers) |
+|---|---|
+| Claude Code | `.claude/` dir OR existing `CLAUDE.md` |
+| Codex / Amp / opencode | `.codex/` dir OR `.amp/` dir OR `.opencode/` dir OR existing `AGENTS.md` |
+| Gemini CLI | `.gemini/` dir OR existing `GEMINI.md` |
+| Cursor | `.cursor/` dir |
+| Windsurf | `.windsurf/` dir |
+| Copilot | existing `.github/copilot-instructions.md` OR `.github/copilot/` dir |
+| Cline | `.clinerules/` dir |
+
+A harness is **detected** if any of its signals exist. Only interact with the context files of detected harnesses.
+
+#### 6b. Decide which files to write
+
+For each **detected** harness, manage a marked block in its context file:
+
+| Harness | File | Create if missing |
+|---|---|---|
+| Claude Code | `CLAUDE.md` | ✅ |
+| Codex/Amp/opencode | `AGENTS.md` | ✅ |
+| Gemini CLI | `GEMINI.md` | ✅ |
+| Cursor | `.cursor/rules/project-index.mdc` | ✅ |
+| Windsurf | `.windsurf/rules/project-index.md` | ✅ |
+| Copilot | `.github/copilot-instructions.md` | ✅ |
+| Cline | `.clinerules/project-index.md` | ✅ |
+
+**Fallback when NOTHING is detected** — create `AGENTS.md` at the repo root as a universal catch-all (most modern agents honor it). This is the ONLY case `AGENTS.md` is created without explicit harness detection.
+
+**Do NOT** create `AGENTS.md` alongside `CLAUDE.md` just because a fallback exists. If Claude Code is detected and Codex/Amp/opencode is NOT detected, only `CLAUDE.md` is written.
+
+#### 6c. Block content
+
+Write this block (idempotent — replace in place if `<!-- project-indexer:start -->` already present):
 
 ```markdown
 <!-- project-indexer:start -->
@@ -176,7 +212,7 @@ See `PROJECT_INDEX.md` for the full file tree with per-file descriptions. Consul
 <!-- project-indexer:end -->
 ```
 
-On Claude Code specifically, use the `@` import form instead so the index loads into context automatically:
+On Claude Code specifically, use the `@` import form so the index loads into context automatically:
 
 ```markdown
 <!-- project-indexer:start -->
@@ -186,21 +222,9 @@ See @PROJECT_INDEX.md for the full file tree with per-file descriptions. Consult
 <!-- project-indexer:end -->
 ```
 
-**Target files (wire into every one that exists, create any that are clearly indicated)**:
+#### 6d. Rules
 
-| Harness | File | Create if missing? |
-|---|---|---|
-| Claude Code | `CLAUDE.md` | Yes (if `.claude/` dir exists) |
-| Codex / Amp / any AGENTS.md agent | `AGENTS.md` | Yes (if no `CLAUDE.md` exists — acts as universal fallback) |
-| Gemini CLI | `GEMINI.md` | Only if `.gemini/` dir exists |
-| Cursor | `.cursor/rules/project-index.mdc` | Only if `.cursor/` dir exists |
-| Windsurf | `.windsurf/rules/project-index.md` | Only if `.windsurf/` dir exists |
-| Copilot | `.github/copilot-instructions.md` | Only if `.github/` dir exists |
-| Cline | `.clinerules/project-index.md` | Only if `.clinerules/` dir exists |
-
-**Rules**:
-- Never create a tool's context file unless its config dir (`.claude/`, `.cursor/`, etc.) already exists — don't silently opt the user into tools they aren't using.
-- **Exception**: If NO agent file exists at all, create `AGENTS.md` at the root as a universal fallback. Most agents (Codex, Amp, opencode, Cursor via rules, etc.) honor `AGENTS.md`.
+- Detection is the gate. No detection signal → no file written (except the fallback case above).
 - When appending to an existing file, add a blank line before the marked block.
 - When the block already exists, replace its contents in place. Never touch content outside the marked block.
 - For Cursor's `.mdc` files, prepend minimal frontmatter if the file is being created:
@@ -261,6 +285,7 @@ The script itself handles debouncing (60s) + skip-if-missing + single-flight loc
 - **Describing files as nouns ("A helper file")** — state what it DOES.
 - **Skipping `.gitignore`** — don't index `node_modules`. Always start from `git ls-files` inside a repo.
 - **Creating context files for unused tools** — only touch `.cursor/`, `.gemini/`, etc. if the directory already exists.
+- **Creating `AGENTS.md` alongside `CLAUDE.md`** — don't. AGENTS.md is only written when Codex/Amp/opencode is detected, OR as a fallback when NO harness is detected. Claude Code alone → `CLAUDE.md` only.
 - **Overwriting the whole `CLAUDE.md` / `AGENTS.md`** — only modify the `<!-- project-indexer:start -->` block.
 - **Rewriting unchanged descriptions on incremental runs** — reuse them verbatim. Only re-describe changed files.
 - **Enabling auto mode on tools without hooks** — Cursor/Windsurf/Copilot have no hook system; stop and tell the user.
@@ -273,4 +298,4 @@ The script itself handles debouncing (60s) + skip-if-missing + single-flight loc
 - **Any text file** — default to `head -50` (leading comment) + `grep` for signatures. Full-read only as an escalation when signatures are too thin. Never full-read by default.
 - **Generated files checked in** (e.g., `.gen.ts`, `pnpm-lock.yaml` — usually gitignored but some projects commit them): description = "Generated — do not edit".
 - **Symlinks** — follow once, describe target; note `(symlink → target)` in the description.
-- **Multiple agent files coexisting** (`CLAUDE.md` AND `AGENTS.md` both present) — wire the block into both; they serve different agents.
+- **Multiple harnesses coexisting** — if `.claude/` AND `.codex/` both exist, both are detected; wire the block into both `CLAUDE.md` and `AGENTS.md`. They serve different agents. This is the only case both files get updated.
