@@ -118,15 +118,20 @@ Read the first 20 lines of the existing `PROJECT_INDEX.md` to extract the stored
 ### Step 3: Describe each file
 
 For each file to index:
+
 1. **Check the no-read list first** (images, fonts, media, archives, binaries, >1 MB blobs). If matched, skip reading entirely — derive the description from filename + extension only. Do NOT use Read, cat, or any content-loading tool on these files.
-2. **Large text files (>2000 lines)** — do NOT full-read. Signatures-first:
-   - `grep -nE '^(export |def |class |function |interface |type |const [A-Z]|pub |async fn |fn )' <file> | head -100`
-   - `head -50 <file>` for the leading doc comment
-   - Skip bodies, loops, inline logic
-3. Otherwise, read the file (cap at ~300 lines — enough for imports, main exports, top-level comments).
+
+2. **Default path — comments + signatures only.** This is the primary fast path for ALL code files regardless of size. Do NOT full-read first.
+   - **Leading doc comment**: `head -50 <file>` (covers module docstrings, JSDoc, `"""..."""`, `/** ... */`, top-level `//` banner).
+   - **Signatures**: `grep -nE '^(export |export default |def |async def |class |function |async function |interface |type |const [A-Z]|let [A-Z]|var [A-Z]|pub |pub fn |fn |impl |struct |enum |trait |func |protocol )' <file> | head -60`
+   - Union of the two is usually enough to write an accurate one-liner. Skip bodies, loops, inline logic.
+   - For config/markdown/JSON/YAML: `head -50 <file>` alone is enough — no signature grep needed.
+
+3. **Escalate only if signatures-only is too thin** — e.g. file is a single default-export function with no signatures at top, a flat script with no declarations, or a pure data file where the "what" lives in values. Then Read the file with a 300-line cap. Last resort only — adds real latency.
+
 4. Write a one-line description focused on what the file **does**, not its type.
 
-**Reading more when needed**: the caps above (300 lines / signatures-only) are the DEFAULT budget to keep indexing fast. If after the initial read you still can't write a confident, specific one-liner — e.g. the top of the file is pure imports/boilerplate and the real purpose lives further down — do a targeted second read (jump to a specific offset, grep for a symbol you spotted, or expand the line cap). Prefer surgical follow-up reads over re-reading the whole file.
+**Reading more when needed**: the fast path above is the DEFAULT budget. If the signature+comment scan still leaves you with a vague description, do a targeted follow-up: Read with an offset aimed at a symbol you spotted, or grep a specific identifier. Prefer surgical follow-ups over full re-reads.
 
 Description rules:
 - One sentence, ≤120 characters
@@ -141,7 +146,7 @@ Description rules:
 
 - **≤50 files** — batch reads in groups of 20 via a single message with 20 parallel Read tool calls. Never read files one at a time in sequence.
 - **>50 files** — dispatch subagents (Explore type). Split the file list into chunks of ~30 files per subagent. Each subagent returns `{path: description}` pairs. Merge results in the main thread.
-  - Prompt template for each subagent: "Read each of these N files and return a one-line description for each (format: `path: description`). Rules: ≤120 chars, present tense, name the primary export/purpose. For large files (>2000 lines), grep signatures and the leading comment instead of full read. Files: [list]."
+  - Prompt template for each subagent: "For each file, generate a one-line description (≤120 chars, present tense, naming the primary export/purpose). DEFAULT method: `head -50 <file>` + `grep -nE '^(export|def|class|function|interface|type|pub|fn|async|impl|struct|enum|trait)' <file> | head -60`. Only full-read (cap 300 lines) when signatures alone are too thin. Return `path: description` per line. Files: [list]."
   - Run subagents in parallel via a single message with multiple Agent tool calls.
 - Reading files one-by-one on a repo of 100+ files is a bug. Always batch.
 
@@ -265,7 +270,7 @@ The script itself handles debouncing (60s) + skip-if-missing + single-flight loc
 
 - **Monorepos** — index the root; don't recurse into nested `.git` dirs.
 - **Submodules** — list the submodule path as a single entry with its remote URL as the description, don't descend.
-- **Large text files (>2000 lines)** — grep for signatures (functions, classes, exports) + read leading doc comment. Never full-read.
+- **Any text file** — default to `head -50` (leading comment) + `grep` for signatures. Full-read only as an escalation when signatures are too thin. Never full-read by default.
 - **Generated files checked in** (e.g., `.gen.ts`, `pnpm-lock.yaml` — usually gitignored but some projects commit them): description = "Generated — do not edit".
 - **Symlinks** — follow once, describe target; note `(symlink → target)` in the description.
 - **Multiple agent files coexisting** (`CLAUDE.md` AND `AGENTS.md` both present) — wire the block into both; they serve different agents.
