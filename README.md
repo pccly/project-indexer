@@ -11,6 +11,8 @@ Future sessions understand the layout **without** running `Glob` / `Grep` / `fin
 - **Two modes**: manual (on request) and auto (via PostToolUse hook — Claude Code + Codex only)
 - **Incremental updates** — only re-describes changed files (via git diff or mtime)
 - **Idempotent** updates via marked `<!-- project-indexer:start -->` / `<!-- project-indexer:end -->` blocks
+- **Fast on any repo size** — parallel reads (20 per batch) + subagent dispatch for >50 files
+- **Skip-read for heavy files** — images, fonts, media, archives, binaries, >1 MB blobs, and >2000-line text files never get full-Read; descriptions come from filename or a signatures-only scan
 
 ## Install
 
