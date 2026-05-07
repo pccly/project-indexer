@@ -137,3 +137,16 @@ Every `Glob` / `Grep` call burns tokens and adds latency. One 200-line index rep
 ## License
 
 MIT
+
+## Documentation
+
+Polished project notes (kept in the CCLY Obsidian vault, `~/Nextcloud/CCLY/Projects/project-indexer/`):
+
+- `project-indexer.md` — hub note: purpose, how it works, harness-wiring matrix, triggers, status.
+- `Skill.md` — polished skill spec (supersedes the in-tree `SKILL.md` for prose / tightening; the in-tree `SKILL.md` remains the runtime artifact loaded by Claude Code / agent skill harnesses).
+
+In-tree references for runtime / contributors:
+
+- `SKILL.md` — runtime skill definition (frontmatter trigger + full process). Loaded by Claude Code / agent harnesses.
+- `commands/project-index.md`, `commands/project-index-rebuild.md`, `commands/project-index-auto.md` — slash-command definitions.
+- `scripts/auto_update.sh` — debounced PostToolUse refresher invoked by the auto-mode hook.
