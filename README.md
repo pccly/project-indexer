@@ -56,8 +56,8 @@ The skill will:
 2. Read each file to generate a one-line description
 3. Write **`PROJECT_INDEX.md` at the repo root** with a full tree + per-file entries
 4. Detect which agent context files exist and update each with a pointer to the index:
-   - `CLAUDE.md` — uses `@PROJECT_INDEX.md` import (Claude Code loads it automatically)
-   - `AGENTS.md` / `GEMINI.md` / Cursor rules / Windsurf rules / Copilot instructions / Cline rules — plain reference
+   - `CLAUDE.md` / `AGENTS.md` / `GEMINI.md` / Cursor rules / Windsurf rules / Copilot instructions / Cline rules — plain reference (the agent Reads `PROJECT_INDEX.md` on demand)
+   - The skill deliberately does NOT use Claude Code's `@PROJECT_INDEX.md` import form, since auto-importing the full index burns context every session. See [Why no `@` import](#why-no--import) below.
 5. If no agent file exists, create `AGENTS.md` at root as a universal fallback
 
 ### Slash commands (Claude Code)
@@ -72,7 +72,7 @@ If you copy `commands/` into `~/.claude/commands/`, you also get:
 
 | Harness | Context file written | Auto mode |
 |---|---|---|
-| Claude Code | `CLAUDE.md` (with `@` import) | ✅ via `.claude/settings.json` hook |
+| Claude Code | `CLAUDE.md` (plain reference, on-demand Read) | ✅ via `.claude/settings.json` hook |
 | Codex | `AGENTS.md` | ✅ via `.codex/hooks.json` (syntax varies) |
 | Cursor | `.cursor/rules/project-index.mdc` | ❌ no hook system — run manually |
 | Windsurf | `.windsurf/rules/project-index.md` | ❌ run manually |
@@ -133,6 +133,14 @@ Root React component — renders tool switcher, sidebar, main panel.
 ## Why
 
 Every `Glob` / `Grep` call burns tokens and adds latency. One 200-line index replaces dozens of search calls for navigation tasks — and it travels with the repo, so every agent (Claude, Cursor, Copilot, Codex) benefits equally. The index also surfaces dead files, unclear naming, and coverage gaps every time you review it.
+
+## Why no `@` import
+
+Earlier versions wrote `@PROJECT_INDEX.md` into `CLAUDE.md`, which makes Claude Code auto-load the entire index into every session as memory. On any non-trivial repo, the index is several thousand tokens of file paths plus descriptions, paid on every turn whether the agent navigates or not. That defeats the point: the index exists to *replace* expensive lookups, not to ride along in context for free.
+
+The current behavior is to write a plain reference (`See PROJECT_INDEX.md ...`) so the agent Reads the index only when it actually needs to navigate. That's a single Read call (cheap, deterministic) instead of a permanent context tax.
+
+Small repos where the full index is <500 lines: hand-edit your `CLAUDE.md` to switch `PROJECT_INDEX.md` to `@PROJECT_INDEX.md`. The skill itself never writes the `@` form.
 
 ## License
 

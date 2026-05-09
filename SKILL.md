@@ -212,15 +212,9 @@ See `PROJECT_INDEX.md` for the full file tree with per-file descriptions. Consul
 <!-- project-indexer:end -->
 ```
 
-On Claude Code specifically, use the `@` import form so the index loads into context automatically:
+**Do NOT use the Claude Code `@PROJECT_INDEX.md` import form.** On any non-trivial repo the full index (tree + per-file descriptions) is several thousand tokens and gets injected into every session as memory, defeating the purpose of the skill (the index exists to *replace* expensive lookups, not to ride along in context for free). Use the plain reference above on Claude Code too — the agent will Read `PROJECT_INDEX.md` only when it actually needs to navigate, which is the desired behavior.
 
-```markdown
-<!-- project-indexer:start -->
-## Project Index
-
-See @PROJECT_INDEX.md for the full file tree with per-file descriptions. Consult it BEFORE running Glob/Grep/find.
-<!-- project-indexer:end -->
-```
+If a user explicitly wants always-on context (small repos, <500 lines of index), they can hand-edit their `CLAUDE.md` to switch `PROJECT_INDEX.md` to `@PROJECT_INDEX.md`. The skill itself never writes the `@` form.
 
 #### 6d. Rules
 
@@ -290,6 +284,7 @@ The script itself handles debouncing (60s) + skip-if-missing + single-flight loc
 - **Rewriting unchanged descriptions on incremental runs** — reuse them verbatim. Only re-describe changed files.
 - **Enabling auto mode on tools without hooks** — Cursor/Windsurf/Copilot have no hook system; stop and tell the user.
 - **Blocking on auto-mode hooks** — background the script; never make the user wait for an index update.
+- **Using the `@PROJECT_INDEX.md` import in `CLAUDE.md`** — auto-imports the entire index into every session as memory. On a 200-file repo that's thousands of tokens loaded whether the agent navigates or not. Use the plain `PROJECT_INDEX.md` reference so the agent Reads it on demand only.
 
 ## Edge cases
 
